@@ -1,4 +1,4 @@
-public class SumOfOddAndEven
+public class theSumOfOddAndEven
 {
     public static void main(String[] args)
     {
