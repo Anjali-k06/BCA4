@@ -1,0 +1,112 @@
+const express = require('express');
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+
+const app = express();
+const port = 5000;
+
+app.use(cors());
+app.use(bodyParser.json());
+
+// Connect to MongoDB
+mongoose.connect('mongodb://localhost:27017/household-management', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+});
+
+// User Schema
+const userSchema = new mongoose.Schema({
+    name: String,
+    email: String,
+    password: String,
+});
+
+const applianceSchema = new mongoose.Schema({
+    name: String,
+    powerConsumption: Number,
+    userId: mongoose.Schema.Types.ObjectId,
+});
+
+const User = mongoose.model('User', userSchema);
+const Appliance = mongoose.model('Appliance', applianceSchema);
+
+// Register User
+app.post('/api/register', async (req, res) => {
+    const { name, email, password } = req.body;
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({ name, email, password: hashedPassword });
+
+    await newUser.save();
+    res.json({ message: 'User registered successfully' });
+});
+
+// Login User
+app.post('/api/login', async (req, res) => {
+    const { email, password } = req.body;
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+        return res.status(400).json({ message: 'User not found' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+        return res.status(400).json({ message: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign({ userId: user._id }, 'secret', { expiresIn: '1h' });
+    res.json({ token });
+});
+
+// Middleware to verify token
+const verifyToken = (req, res, next) => {
+    const token = req.headers['authorization']?.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ message: 'No token provided' });
+    }
+
+    jwt.verify(token, 'secret', (err, decoded) => {
+        if (err) {
+            return res.status(401).json({ message: 'Invalid token' });
+        }
+        req.userId = decoded.userId;
+        next();
+    });
+};
+
+// Get Appliances
+app.get('/api/appliances', verifyToken, async (req, res) => {
+    const appliances = await Appliance.find({ userId: req.userId });
+    res.json(appliances);
+});
+
+// Add Appliance
+app.post('/api/appliances', verifyToken, async (req, res) => {
+    const { name, powerConsumption } = req.body;
+
+    const newAppliance = new Appliance({
+        name,
+        powerConsumption,
+        userId: req.userId,
+    });
+
+    await newAppliance.save();
+    res.json(newAppliance);
+});
+
+// Delete Appliance
+app.delete('/api/appliances/:id', verifyToken, async (req, res) => {
+    await Appliance.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Appliance deleted' });
+});
+
+app.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}`);
+});
